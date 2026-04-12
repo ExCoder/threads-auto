@@ -144,3 +144,42 @@ async def generate_reply_drafts(
     await db.commit()
     await db.refresh(draft)
     return draft
+
+
+async def pick_best_variant(variants: list[str], topic: str, draft_type: str = "post") -> int:
+    """Ask LLM to pick the best variant. Returns index 0-2."""
+    if len(variants) < 2:
+        return 0
+
+    prompt = f"""Pick the single best {draft_type} variant for Threads.
+
+Criteria:
+1. Specificity (concrete > vague)
+2. Hook strength (first 10 words must grab attention)
+3. Brevity (shorter is better if equally good)
+4. Authenticity (sounds like a real person, not AI)
+
+Topic: {topic}
+
+Variant 1: {variants[0]}
+Variant 2: {variants[1]}
+Variant 3: {variants[2] if len(variants) > 2 else variants[0]}
+
+Reply with ONLY the number: 1, 2, or 3"""
+
+    client = _get_llm_client()
+    try:
+        response = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=5,
+            temperature=0.0,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        num = int(raw[0]) if raw and raw[0] in "123" else 1
+        return num - 1  # Convert 1-indexed to 0-indexed
+    except Exception as e:
+        logger.warning("pick_best_variant failed, defaulting to 0: %s", e)
+        return 0
+    finally:
+        await client.close()

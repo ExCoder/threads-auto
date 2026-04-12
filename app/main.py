@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
-from app.routes import auth, content, dashboard, drafts, logs, metrics, settings_page, sync, targets
+from app.routes import auth, autopilot, content, dashboard, drafts, logs, metrics, settings_page, sync, targets
 
 logging.basicConfig(level=getattr(logging, settings.log_level))
 logger = logging.getLogger(__name__)
@@ -60,6 +60,35 @@ app.include_router(content.router, prefix="/content", tags=["content"])
 app.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 app.include_router(logs.router, prefix="/logs", tags=["logs"])
 app.include_router(sync.router, prefix="/sync", tags=["sync"])
+app.include_router(autopilot.router, prefix="/autopilot", tags=["autopilot"])
+
+
+# --- Autopilot scheduler ---
+
+@app.on_event("startup")
+async def start_autopilot_scheduler():
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    async def _autopilot_job():
+        from app.db import async_session
+        from app.services.autopilot_service import run_autopilot
+        try:
+            async with async_session() as db:
+                result = await run_autopilot(db)
+                logger.info("Autopilot cron: decision=%s status=%s", result.decision, result.status)
+        except Exception as e:
+            logger.error("Autopilot cron error: %s", e)
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        _autopilot_job,
+        IntervalTrigger(hours=settings.autopilot_interval_hours),
+        id="autopilot",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("Autopilot scheduler started (every %dh)", settings.autopilot_interval_hours)
 
 
 @app.get("/health")

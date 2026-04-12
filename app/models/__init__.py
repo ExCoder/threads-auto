@@ -8,6 +8,7 @@ from app.models.metrics_snapshot import MetricsSnapshot
 from app.models.recommendation import Recommendation
 from app.models.action_log import ActionLog
 from app.models.sync_log import SyncLog
+from app.models.agent_run import AgentRun
 
 __all__ = [
     "UserSettings",
@@ -20,4 +21,5 @@ __all__ = [
     "Recommendation",
     "ActionLog",
     "SyncLog",
+    "AgentRun",
 ]

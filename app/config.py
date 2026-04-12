@@ -54,5 +54,9 @@ class Settings:
     max_llm_requests_per_day: int = 20
     reply_cooldown_minutes: int = 30
 
+    # Autopilot
+    autopilot_interval_hours: int = 3
+    autopilot_min_score: float = 0.6
+
 
 settings = Settings()

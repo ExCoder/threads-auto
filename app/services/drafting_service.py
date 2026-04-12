@@ -27,9 +27,15 @@ async def _get_user_settings(db: AsyncSession) -> UserSettings | None:
 def _parse_variants(text: str) -> list[str]:
     """Parse LLM response into 3 variants split by ---."""
     parts = [p.strip() for p in text.split("---") if p.strip()]
+    # Filter out junk (too short, just dashes, numbering artifacts)
+    parts = [p for p in parts if len(p) > 10 and not p.strip("-").strip() == ""]
     # If splitting by --- didn't work, try splitting by double newline
     if len(parts) < 2:
-        parts = [p.strip() for p in text.split("\n\n") if p.strip()]
+        parts = [p.strip() for p in text.split("\n\n") if p.strip() and len(p.strip()) > 10]
+    # Strip leading numbering like "1.", "1)", "Variant 1:"
+    import re
+    parts = [re.sub(r"^(?:\d+[\.\)]\s*|Variant\s*\d+:?\s*)", "", p).strip() for p in parts]
+    parts = [p for p in parts if len(p) > 10]
     # Ensure we have exactly 3
     if len(parts) > 3:
         parts = parts[:3]

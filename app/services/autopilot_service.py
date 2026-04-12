@@ -84,6 +84,15 @@ async def _execute(db: AsyncSession, run: AgentRun) -> AgentRun:
     if post_limit_reached and reply_limit_reached:
         return await _skip(db, run, "all_daily_limits_reached")
 
+    # --- Generate recommendations if none exist ---
+    from app.services.analytics_service import generate_recommendations
+    unconsumed_count = (await db.execute(
+        select(Recommendation).where(Recommendation.consumed == False).limit(1)
+    )).scalar_one_or_none()
+    if not unconsumed_count:
+        logger.info("No recommendations found, generating fresh ones...")
+        await generate_recommendations(db)
+
     # --- Pick best action ---
     cutoff = now - timedelta(hours=48)
 

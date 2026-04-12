@@ -74,26 +74,24 @@ async def generate_recommendations(db: AsyncSession) -> int:
         for t in recent_targets[:5]:
             context_parts.append(f"- {t.body_text_snapshot[:100] if t.body_text_snapshot else t.target_url or 'no text'}...")
 
+    if not context_parts:
+        context_parts.append("No user settings or content yet. Generate general post ideas based on common tech/startup themes.")
+
     prompt = "\n".join(context_parts)
     prompt += """
 
-Based on this data, generate:
-1. Exactly 3 post ideas (type: post_idea)
-2. Up to 5 reply opportunities (type: reply_opportunity) — only if there are discovered conversations
+Based on this data, generate exactly 3 post ideas.
 
-For each, provide:
-- title (short, actionable)
-- body (1-2 sentences of detail)
-- reason (why this is a good idea)
-- score (0.0-1.0, higher = more recommended)
+For each, provide ALL of these fields:
+TYPE: post_idea
+TITLE: (short post idea, under 20 words)
+BODY: (1-2 sentences expanding the idea)
+REASON: (why this is worth posting)
+SCORE: (0.6 to 0.9)
+---
 
-Format each as:
-TYPE: post_idea or reply_opportunity
-TITLE: ...
-BODY: ...
-REASON: ...
-SCORE: ...
----"""
+Separate each recommendation with --- on its own line.
+Do NOT skip any fields. Every recommendation must have TYPE, TITLE, BODY, REASON, SCORE."""
 
     # Mark old recommendations as consumed
     old_recs = (await db.execute(
@@ -114,9 +112,11 @@ SCORE: ...
             temperature=0.7,
         )
         raw = response.choices[0].message.content or ""
+        logger.info("Recommendations LLM raw response (%d chars): %s", len(raw), raw[:300])
         recs = _parse_recommendations(raw)
+        logger.info("Parsed %d recommendations", len(recs))
     except Exception as e:
-        logger.error("Recommendation generation failed: %s", e)
+        logger.error("Recommendation generation failed: %s", e, exc_info=True)
         recs = []
     finally:
         await client.close()

@@ -47,12 +47,12 @@ async def toggle_autopilot(request: Request, db: AsyncSession = Depends(get_db))
     enabled = form.get("enabled") == "on"
 
     s = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
-    if s:
-        # Validate settings before enabling
-        if enabled and (not s.positioning or not s.themes):
-            return RedirectResponse("/autopilot", status_code=303)
+    if not s:
+        s = UserSettings(autopilot_enabled=enabled)
+        db.add(s)
+    else:
         s.autopilot_enabled = enabled
-        await db.commit()
+    await db.commit()
 
     return RedirectResponse("/autopilot", status_code=303)
 

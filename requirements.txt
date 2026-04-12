@@ -9,4 +9,3 @@ python-multipart==0.0.20
 httpx==0.28.1
 openai==1.59.3
 itsdangerous==2.2.0
-aiosqlite==0.20.0

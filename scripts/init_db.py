@@ -3,6 +3,7 @@
 Usage: python -m scripts.init_db
 """
 import asyncio
+import sys
 
 from dotenv import load_dotenv
 

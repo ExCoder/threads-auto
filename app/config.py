@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
@@ -8,7 +9,17 @@ load_dotenv()
 
 
 def _fix_db_url(url: str) -> str:
-    """Convert Railway's postgresql:// to asyncpg-compatible URL."""
+    """Convert Railway's postgresql:// to asyncpg-compatible URL.
+
+    Railway provides DATABASE_URL as postgresql://user:pass@host:5432/db
+    SQLAlchemy async requires postgresql+asyncpg://user:pass@host:5432/db
+    """
+    if not url:
+        raise ValueError(
+            "DATABASE_URL is not set. "
+            "On Railway: add DATABASE_URL=${{Postgres.DATABASE_URL}} to your service variables. "
+            "Locally: set DATABASE_URL in .env file."
+        )
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://", 1)
     if url.startswith("postgres://"):
@@ -18,8 +29,8 @@ def _fix_db_url(url: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    # Database (auto-converts postgresql:// to postgresql+asyncpg:// for Railway compatibility)
-    database_url: str = field(default_factory=lambda: _fix_db_url(os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/threads_copilot")))
+    # Database (auto-converts Railway's postgresql:// to postgresql+asyncpg://)
+    database_url: str = field(default_factory=lambda: _fix_db_url(os.environ.get("DATABASE_URL", "")))
 
     # Threads API
     threads_app_id: str = field(default_factory=lambda: os.environ.get("THREADS_APP_ID", ""))

@@ -7,10 +7,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _fix_db_url(url: str) -> str:
+    """Convert Railway's postgresql:// to asyncpg-compatible URL."""
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
 @dataclass(frozen=True)
 class Settings:
-    # Database
-    database_url: str = field(default_factory=lambda: os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/threads_copilot"))
+    # Database (auto-converts postgresql:// to postgresql+asyncpg:// for Railway compatibility)
+    database_url: str = field(default_factory=lambda: _fix_db_url(os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/threads_copilot")))
 
     # Threads API
     threads_app_id: str = field(default_factory=lambda: os.environ.get("THREADS_APP_ID", ""))

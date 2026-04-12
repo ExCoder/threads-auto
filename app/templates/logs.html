@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block title %}Logs - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Logs</h1>
+
+<div class="card">
+    <h2>Sync History</h2>
+    {% if syncs %}
+    <table>
+        <tr><th>Type</th><th>Status</th><th>Items</th><th>Started</th><th>Finished</th></tr>
+        {% for s in syncs %}
+        <tr>
+            <td class="text-sm">{{ s.sync_type }}</td>
+            <td><span class="badge badge-{{ 'success' if s.status == 'success' else 'danger' if s.status == 'error' else 'info' }}">{{ s.status }}</span></td>
+            <td>{{ s.items_processed }}</td>
+            <td class="text-sm text-muted">{{ s.started_at.strftime('%m/%d %H:%M') }}</td>
+            <td class="text-sm text-muted">{{ s.finished_at.strftime('%m/%d %H:%M') if s.finished_at else '-' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="text-muted text-sm">No syncs yet.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Action Log</h2>
+    {% if actions %}
+    <table>
+        <tr><th>Event</th><th>Status</th><th>Error</th><th>Date</th></tr>
+        {% for a in actions %}
+        <tr>
+            <td class="text-sm">{{ a.event_type }}</td>
+            <td><span class="badge badge-{{ 'success' if a.status == 'success' else 'danger' }}">{{ a.status }}</span></td>
+            <td class="text-sm">{{ a.error_message[:60] if a.error_message else '-' }}</td>
+            <td class="text-sm text-muted">{{ a.created_at.strftime('%m/%d %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="text-muted text-sm">No actions yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block title %}New Post Draft - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Generate Post Drafts</h1>
+
+<div class="card">
+    <h2>What should the post be about?</h2>
+    <form method="post" action="/drafts/posts/generate">
+        <label for="prompt">Topic or idea (the AI will generate 3 variants)</label>
+        <textarea id="prompt" name="prompt" rows="4" required placeholder="Write about why most AI agents fail in production. Use a sharp, contrarian tone. Include a specific example."></textarea>
+
+        <button type="submit" class="btn btn-primary mt-16">Generate 3 Drafts</button>
+    </form>
+</div>
+{% endblock %}

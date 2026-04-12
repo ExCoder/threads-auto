@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block title %}Import Target - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Import Target</h1>
+
+<div class="card">
+    <h2>Import a Threads post or text</h2>
+    <form method="post" action="/targets/import">
+        <label for="target_url">Threads Post URL (optional)</label>
+        <input type="text" id="target_url" name="target_url" placeholder="https://www.threads.net/@user/post/...">
+
+        <label for="body_text">Post Text (paste the content)</label>
+        <textarea id="body_text" name="body_text" rows="5" placeholder="Paste the post text here if you don't have the URL, or want to add context..."></textarea>
+
+        <button type="submit" class="btn btn-primary mt-16">Import</button>
+    </form>
+</div>
+{% endblock %}

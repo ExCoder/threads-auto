@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block title %}Imported Targets - Threads Copilot{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <h1>Imported Targets</h1>
+    <a href="/targets/new" class="btn btn-primary">Import New</a>
+</div>
+
+{% if targets %}
+<table>
+    <tr><th>URL</th><th>Source</th><th>Method</th><th>Text</th><th>Date</th></tr>
+    {% for t in targets %}
+    <tr>
+        <td class="text-sm">{% if t.target_url %}<a href="{{ t.target_url }}" target="_blank">{{ t.target_url[:40] }}...</a>{% else %}-{% endif %}</td>
+        <td><span class="badge badge-info">{{ t.source_type }}</span></td>
+        <td class="text-sm">{{ t.import_method }}</td>
+        <td class="text-sm">{{ t.body_text_snapshot[:60] if t.body_text_snapshot else '-' }}...</td>
+        <td class="text-sm text-muted">{{ t.created_at.strftime('%m/%d %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+    <div class="card empty">
+        <p>No imported targets yet.</p>
+        <a href="/targets/new" class="btn btn-outline mt-16">Import Your First Target</a>
+    </div>
+{% endif %}
+{% endblock %}

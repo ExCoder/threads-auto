@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}Metrics - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Metrics</h1>
+
+{% if snapshots %}
+<table>
+    <tr><th>Content ID</th><th>Views</th><th>Likes</th><th>Replies</th><th>Reposts</th><th>Quotes</th><th>Captured</th></tr>
+    {% for s in snapshots %}
+    <tr>
+        <td class="text-sm">#{{ s.content_item_id }}</td>
+        <td>{{ s.views }}</td>
+        <td>{{ s.likes }}</td>
+        <td>{{ s.replies }}</td>
+        <td>{{ s.reposts }}</td>
+        <td>{{ s.quotes }}</td>
+        <td class="text-sm text-muted">{{ s.captured_at.strftime('%m/%d %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+    <div class="card empty">
+        <p>No metrics yet. Publish content and run a sync to see performance data.</p>
+    </div>
+{% endif %}
+{% endblock %}

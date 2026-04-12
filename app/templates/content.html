@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Published Content - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Published Content</h1>
+
+{% if items %}
+<table>
+    <tr><th>Type</th><th>Text</th><th>Status</th><th>Published</th></tr>
+    {% for item in items %}
+    <tr>
+        <td><span class="badge badge-info">{{ item.item_type }}</span></td>
+        <td class="text-sm">{{ item.body_text[:100] if item.body_text else '-' }}...</td>
+        <td><span class="badge badge-{{ 'success' if item.status == 'published' else 'danger' }}">{{ item.status }}</span></td>
+        <td class="text-sm text-muted">{{ item.published_at.strftime('%Y-%m-%d %H:%M') if item.published_at else item.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+    <div class="card empty">
+        <p>No published content yet. Generate and publish your first post!</p>
+    </div>
+{% endif %}
+{% endblock %}

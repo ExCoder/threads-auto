@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}New Reply Draft - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Generate Reply Drafts</h1>
+
+<div class="card">
+    <h2>Reply to a conversation</h2>
+    <form method="post" action="/drafts/replies/generate">
+        {% if targets %}
+        <label for="target_id">Select an imported target (optional)</label>
+        <select id="target_id" name="target_id">
+            <option value="">-- None (use prompt only) --</option>
+            {% for t in targets %}
+            <option value="{{ t.id }}">{{ t.target_url or t.body_text_snapshot[:60] if t.body_text_snapshot else 'Target #' ~ t.id }}...</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        <label for="prompt">Context / what the post says (paste the text you want to reply to)</label>
+        <textarea id="prompt" name="prompt" rows="5" required placeholder="Paste the post text here, or describe the conversation you want to reply to..."></textarea>
+
+        <button type="submit" class="btn btn-primary mt-16">Generate 3 Reply Drafts</button>
+    </form>
+</div>
+{% endblock %}

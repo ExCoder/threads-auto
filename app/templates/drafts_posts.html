@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}Post Drafts - Threads Copilot{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <h1>Post Drafts</h1>
+    <a href="/drafts/posts/new" class="btn btn-primary">New Post Draft</a>
+</div>
+
+{% if drafts %}
+    {% for draft in drafts %}
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+                <span class="badge badge-{{ 'success' if draft.approval_status == 'published' else 'warning' if draft.approval_status == 'pending' else 'info' }}">{{ draft.approval_status }}</span>
+                <p class="text-sm text-muted" style="margin-top: 4px;">{{ draft.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
+        </div>
+        {% if draft.source_prompt %}
+        <p class="text-sm text-muted mb-8" style="margin-top: 8px;">Prompt: {{ draft.source_prompt }}</p>
+        {% endif %}
+        {% if draft.variants %}
+            {% for v in draft.variants %}
+            <div class="variant">
+                <p class="text-sm"><strong>#{{ loop.index }}:</strong> {{ v }}</p>
+                {% if draft.approval_status == 'pending' %}
+                <form method="post" action="/drafts/posts/{{ draft.id }}/publish" style="margin-top: 8px;">
+                    <input type="hidden" name="chosen_variant" value="{{ loop.index0 }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Publish This</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card empty">
+        <p>No post drafts yet.</p>
+        <a href="/drafts/posts/new" class="btn btn-outline mt-16">Generate Your First Post</a>
+    </div>
+{% endif %}
+{% endblock %}

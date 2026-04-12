@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Threads Copilot</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="login-box">
+        <div class="card">
+            <h2>Threads Copilot</h2>
+            <form method="post" action="/auth/login">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autofocus>
+                {% if error %}
+                <p style="color: var(--danger); margin-top: 8px; font-size: 13px;">{{ error }}</p>
+                {% endif %}
+                <button type="submit" class="btn btn-primary mt-16" style="width:100%">Login</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

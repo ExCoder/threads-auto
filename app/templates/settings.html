@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block title %}Settings - Threads Copilot{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 24px;">Settings</h1>
+
+<div class="card">
+    <h2>Your Profile</h2>
+    <form method="post" action="/settings">
+        <label for="positioning">Positioning (who are you, what do you do)</label>
+        <textarea id="positioning" name="positioning" rows="3">{{ s.positioning if s and s.positioning else '' }}</textarea>
+
+        <label for="themes">Themes (comma-separated)</label>
+        <input type="text" id="themes" name="themes" value="{{ s.themes|join(', ') if s and s.themes else '' }}" placeholder="AI, startups, product design">
+
+        <label for="desired_audience">Desired Audience</label>
+        <input type="text" id="desired_audience" name="desired_audience" value="{{ s.desired_audience if s and s.desired_audience else '' }}" placeholder="Developers, founders, AI engineers">
+
+        <label for="writing_style">Writing Style</label>
+        <textarea id="writing_style" name="writing_style" rows="2">{{ s.writing_style if s and s.writing_style else '' }}</textarea>
+
+        <label for="forbidden_themes">Forbidden Themes (comma-separated)</label>
+        <input type="text" id="forbidden_themes" name="forbidden_themes" value="{{ s.forbidden_themes|join(', ') if s and s.forbidden_themes else '' }}" placeholder="politics, religion">
+
+        <div class="grid-2">
+            <div>
+                <label for="daily_post_target">Daily Post Target</label>
+                <input type="number" id="daily_post_target" name="daily_post_target" value="{{ s.daily_post_target if s else 3 }}" min="1" max="10">
+            </div>
+            <div>
+                <label for="daily_reply_target">Daily Reply Target</label>
+                <input type="number" id="daily_reply_target" name="daily_reply_target" value="{{ s.daily_reply_target if s else 10 }}" min="1" max="30">
+            </div>
+        </div>
+
+        <label for="growth_goal">Growth Goal</label>
+        <textarea id="growth_goal" name="growth_goal" rows="2">{{ s.growth_goal if s and s.growth_goal else '' }}</textarea>
+
+        <button type="submit" class="btn btn-primary mt-16">Save Settings</button>
+    </form>
+</div>
+{% endblock %}

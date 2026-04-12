@@ -98,8 +98,14 @@ async def threads_callback(request: Request, db: AsyncSession = Depends(get_db))
         logger.info("Threads account connected: user_id=%s", token.threads_user_id)
         return RedirectResponse("/dashboard", status_code=303)
     except ThreadsAPIError as e:
-        logger.error("OAuth token exchange failed: %s", e)
+        logger.error("OAuth token exchange failed: status=%s message=%s raw=%s", e.status_code, e.message, e.raw)
         return templates.TemplateResponse("login.html", {
             "request": request,
             "error": f"Token exchange failed: {e.message}"
+        })
+    except Exception as e:
+        logger.error("OAuth unexpected error: %s", e, exc_info=True)
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": f"Unexpected error: {e}"
         })

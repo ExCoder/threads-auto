@@ -14,7 +14,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 THREADS_API_BASE = "https://graph.threads.net/v1.0"
-THREADS_OAUTH_BASE = "https://threads.net/oauth"
+THREADS_OAUTH_BASE = "https://graph.threads.net/oauth"
 
 
 class ThreadsAPIError(Exception):

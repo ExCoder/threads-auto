@@ -63,6 +63,20 @@ app.include_router(sync.router, prefix="/sync", tags=["sync"])
 app.include_router(autopilot.router, prefix="/autopilot", tags=["autopilot"])
 
 
+# --- Startup seeding ---
+
+@app.on_event("startup")
+async def seed_defaults():
+    """Populate default UserSettings on first boot."""
+    from app.db import async_session
+    from scripts.seed import seed_user_settings
+    try:
+        async with async_session() as db:
+            await seed_user_settings(db)
+    except Exception as e:
+        logger.error("Seed failed (non-fatal): %s", e)
+
+
 # --- Autopilot scheduler ---
 
 @app.on_event("startup")

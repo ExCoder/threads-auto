@@ -31,9 +31,10 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         .limit(5)
     )).scalars().all()
 
-    # Recent published
+    # Recent published (exclude media-only posts with no text)
     recent_content = (await db.execute(
         select(ContentItem)
+        .where(ContentItem.body_text.isnot(None), ContentItem.body_text != "")
         .order_by(ContentItem.created_at.desc())
         .limit(5)
     )).scalars().all()

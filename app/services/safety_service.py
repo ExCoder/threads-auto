@@ -67,13 +67,18 @@ async def check_reply_cooldown(db: AsyncSession, target_post_id: str) -> bool:
 
 
 async def check_daily_post_limit(db: AsyncSession) -> tuple[bool, int]:
-    """Check if daily post limit has been reached. Returns (limit_reached, count)."""
+    """Check if daily post limit has been reached. Returns (limit_reached, count).
+
+    Uses published_at (actual publish time from Threads), not created_at (DB insert time).
+    This prevents synced historical posts from counting against today's limit.
+    """
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     result = await db.execute(
         select(func.count()).where(
             ContentItem.item_type == "post",
             ContentItem.status == "published",
-            ContentItem.created_at > today_start,
+            ContentItem.published_at.isnot(None),
+            ContentItem.published_at > today_start,
         )
     )
     count = result.scalar() or 0
@@ -87,7 +92,8 @@ async def check_daily_reply_limit(db: AsyncSession) -> tuple[bool, int]:
         select(func.count()).where(
             ContentItem.item_type == "reply",
             ContentItem.status == "published",
-            ContentItem.created_at > today_start,
+            ContentItem.published_at.isnot(None),
+            ContentItem.published_at > today_start,
         )
     )
     count = result.scalar() or 0

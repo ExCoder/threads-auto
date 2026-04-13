@@ -109,11 +109,19 @@ async def _execute(db: AsyncSession, run: AgentRun) -> AgentRun:
 
     best_reply_rec = None
     if not reply_limit_reached:
+        # Only pick reply opportunities whose target has a valid threads_media_id
+        # (manual_paste imports without media_id can't be auto-replied via API)
+        from sqlalchemy import and_, exists
         best_reply_rec = (await db.execute(
             select(Recommendation).where(
                 Recommendation.rec_type == "reply_opportunity",
                 Recommendation.consumed == False,
                 Recommendation.created_at > cutoff,
+                Recommendation.source_target_id.isnot(None),
+                exists().where(and_(
+                    ImportedTarget.id == Recommendation.source_target_id,
+                    ImportedTarget.threads_media_id.isnot(None),
+                )),
             ).order_by(Recommendation.score.desc()).limit(1)
         )).scalar_one_or_none()
 

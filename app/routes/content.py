@@ -16,6 +16,8 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("", response_class=HTMLResponse)
 async def list_content(request: Request, db: AsyncSession = Depends(get_db)):
     items = (await db.execute(
-        select(ContentItem).order_by(ContentItem.created_at.desc())
+        select(ContentItem)
+        .where(ContentItem.body_text.isnot(None), ContentItem.body_text != "")
+        .order_by(ContentItem.created_at.desc())
     )).scalars().all()
     return templates.TemplateResponse("content.html", {"request": request, "items": items})

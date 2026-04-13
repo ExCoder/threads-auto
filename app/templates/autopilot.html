@@ -27,8 +27,8 @@
 
     <div class="card">
         <h3>Today's Usage</h3>
-        <p class="text-sm">Posts: <strong>{{ post_count }}</strong> / {{ max_posts }}</p>
-        <p class="text-sm">Replies: <strong>{{ reply_count }}</strong> / {{ max_replies }}</p>
+        <p class="text-sm">Posts: <strong style="color: {{ 'var(--danger)' if post_count >= max_posts else 'var(--text)' }}">{{ post_count }}</strong> / {{ max_posts }}{% if post_count >= max_posts %} <span class="badge badge-danger">LIMIT</span>{% endif %}</p>
+        <p class="text-sm">Replies: <strong style="color: {{ 'var(--danger)' if reply_count >= max_replies else 'var(--text)' }}">{{ reply_count }}</strong> / {{ max_replies }}{% if reply_count >= max_replies %} <span class="badge badge-danger">LIMIT</span>{% endif %}</p>
         <form method="post" action="/autopilot/trigger" style="margin-top: 12px;">
             <button type="submit" class="btn btn-outline btn-sm">Run Now</button>
         </form>

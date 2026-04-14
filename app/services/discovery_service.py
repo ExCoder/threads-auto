@@ -96,9 +96,9 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, user_id
                 new_count += 1
 
         except ThreadsAPIError as e:
-            if e.status_code == 403:
-                logger.error("Keyword search 403 FORBIDDEN for '%s': %s (need threads_keyword_search scope + app review)", topic_name, e.message)
-                break
+            if e.status_code in (400, 403, 500):
+                logger.error("Keyword search unavailable (%d) for '%s': %s (need App Review for threads_keyword_search)", e.status_code, topic_name, e.message)
+                break  # No point trying other topics — permission issue
             logger.error("Keyword search failed for '%s': status=%d message=%s", topic_name, e.status_code, e.message)
 
     if new_count > 0:
@@ -132,13 +132,13 @@ async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, u
     for post in recent_posts:
         try:
             replies = await client.get_thread_replies(post.threads_media_id)
+            logger.info("Post %s: got %d replies", post.threads_media_id, len(replies))
             for reply in replies:
                 media_id = reply.get("id")
                 if not media_id:
                     continue
 
-                # Skip our own replies
-                username = reply.get("username", "")
+                logger.info("  Reply %s from @%s: %s", media_id, reply.get("username", "?"), (reply.get("text", ""))[:80])
                 # Skip if already imported
                 existing = (await db.execute(
                     select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)

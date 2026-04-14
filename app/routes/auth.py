@@ -52,7 +52,7 @@ async def logout():
 # --- Threads OAuth ---
 
 THREADS_AUTH_URL = "https://threads.net/oauth/authorize"
-THREADS_SCOPES = "threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies,threads_keyword_search,threads_manage_insights"
+THREADS_SCOPES = "threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies,threads_keyword_search,threads_manage_insights,threads_manage_mentions"
 
 
 @router.get("/threads/connect")

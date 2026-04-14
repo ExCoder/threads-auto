@@ -148,6 +148,17 @@ class ThreadsClient:
         )
         return data.get("data", [])
 
+    # --- Mentions ---
+
+    async def get_mentions(self, user_id: str = "me", limit: int = 25) -> list[dict]:
+        """Get posts where user was mentioned. Requires threads_manage_mentions scope."""
+        data = await self._get(
+            f"{THREADS_API_BASE}/{user_id}/threads/mentions",
+            fields="id,text,timestamp,permalink,username",
+            limit=str(limit)
+        )
+        return data.get("data", [])
+
 
 # --- OAuth Helpers (module-level, no client needed) ---
 

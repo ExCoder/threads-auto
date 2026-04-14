@@ -1,15 +1,16 @@
 """Autonomous agent: separate post and reply loops.
 
-Posts run every 3 hours. Replies run every 1 hour.
-Reply loop is fully autonomous: discovers targets → ranks → replies.
+Posts run every 3 hours (50% regular, 50% engagement posts).
+Replies run every 1 hour — fully autonomous with 5 discovery flows.
 """
 from __future__ import annotations
 
 import logging
+import random
 from datetime import datetime, timedelta, timezone
 
 from openai import AsyncOpenAI
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,7 +19,7 @@ from app.models import (
     Recommendation, UserSettings, OAuthToken,
 )
 from app.services.drafting_service import generate_post_drafts, generate_reply_drafts, pick_best_variant
-from app.services.discovery_service import auto_discover_targets
+from app.services.discovery_service import auto_discover_targets, get_known_account_bonus
 from app.services.safety_service import (
     check_duplicate, check_reply_cooldown,
     check_daily_post_limit, check_daily_reply_limit, log_action,
@@ -79,13 +80,17 @@ async def run_autopilot_post(db: AsyncSession) -> AgentRun:
         if not best_rec:
             return await _skip(db, run, "no_post_recommendations")
 
+        # Flow 4: 50% chance of engagement post (designed to provoke replies)
+        is_engagement = random.random() < 0.5
+
         run.decision = "post"
         run.recommendation_id = best_rec.id
-        run.decision_reason = f"post: \"{best_rec.title[:60]}\" score={best_rec.score:.2f}"
+        post_type = "engagement" if is_engagement else "regular"
+        run.decision_reason = f"{post_type} post: \"{best_rec.title[:50]}\" score={best_rec.score:.2f}"
 
         client = ThreadsClient(token.access_token)
         try:
-            await _do_post(db, run, best_rec, client, token.threads_user_id or "me", user_settings)
+            await _do_post(db, run, best_rec, client, token.threads_user_id or "me", user_settings, is_engagement=is_engagement)
         finally:
             await client.close()
 
@@ -133,12 +138,11 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
             run.decision_reason = f"discovered {discovered} new targets"
 
             # ── FIND CANDIDATES ──
-            # Get unreplied targets with media_id, fresh, not failed
             already_replied = select(ContentItem.target_post_id).where(
                 ContentItem.target_post_id.isnot(None)
             ).scalar_subquery()
 
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=72)  # 72h window
             candidates = (await db.execute(
                 select(ImportedTarget).where(
                     ImportedTarget.threads_media_id.isnot(None),
@@ -295,9 +299,12 @@ async def _preflight(db: AsyncSession, run: AgentRun) -> tuple[OAuthToken, UserS
     return token, user_settings
 
 
-async def _do_post(db, run, rec, client, user_id, user_settings):
-    """Generate, pick, check, publish a post."""
-    draft = await generate_post_drafts(db, rec.title)
+async def _do_post(db, run, rec, client, user_id, user_settings, is_engagement: bool = False):
+    """Generate, pick, check, publish a post. 50% engagement posts for reply growth."""
+    if is_engagement:
+        draft = await _generate_engagement_draft(db, user_settings)
+    else:
+        draft = await generate_post_drafts(db, rec.title)
     run.draft_id = draft.id
 
     best_idx = await pick_best_variant(draft.variants, rec.title, "post")
@@ -339,6 +346,49 @@ async def _do_post(db, run, rec, client, user_id, user_settings):
     run.finished_at = datetime.now(timezone.utc)
     await db.commit()
     await log_action(db, "autopilot_post", {"media_id": media_id, "text": text[:200]})
+
+
+async def _generate_engagement_draft(db: AsyncSession, user_settings: UserSettings) -> Draft:
+    """Generate a post designed to provoke replies (Flow 4)."""
+    from app.prompts.post_draft import ENGAGEMENT_SYSTEM_PROMPT, build_engagement_post_prompt
+    from app.services.drafting_service import _get_llm_client, _parse_variants
+
+    prompt = build_engagement_post_prompt(
+        positioning=user_settings.positioning or "",
+        writing_style=user_settings.writing_style or "",
+        themes=user_settings.themes,
+        forbidden_themes=user_settings.forbidden_themes,
+    )
+
+    client = _get_llm_client()
+    try:
+        response = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {"role": "system", "content": ENGAGEMENT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=1000,
+            temperature=0.9,  # Higher temp for more creative engagement posts
+        )
+        raw = response.choices[0].message.content or ""
+        variants = _parse_variants(raw)
+    except Exception as e:
+        logger.error("Engagement post generation failed: %s", e)
+        variants = ["[engagement post generation failed]"] * 3
+    finally:
+        await client.close()
+
+    draft = Draft(
+        draft_type="post",
+        source_prompt="[autopilot engagement post]",
+        variants=variants,
+        approval_status="pending",
+    )
+    db.add(draft)
+    await db.commit()
+    await db.refresh(draft)
+    return draft
 
 
 async def _do_reply(db, run, target, client, user_id, user_settings):

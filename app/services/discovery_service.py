@@ -25,7 +25,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
 
     # 1. Keyword search (find fresh public posts by theme)
     try:
-        count = await _discover_by_keywords(db, client)
+        count = await _discover_by_keywords(db, client, user_id)
         total += count
     except Exception as e:
         logger.warning("Keyword discovery failed: %s", e)
@@ -41,7 +41,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
     return total
 
 
-async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
+async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, user_id: str = "me") -> int:
     """Search for fresh posts by 3 random user themes."""
     settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not settings or not settings.themes:
@@ -59,7 +59,7 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
 
     for topic_name in selected_themes:
         try:
-            results = await client.keyword_search(topic_name, limit=5)
+            results = await client.keyword_search(topic_name, user_id=user_id, limit=5)
             logger.info("Keyword search '%s': got %d results", topic_name, len(results))
             for item in results:
                 media_id = item.get("id")

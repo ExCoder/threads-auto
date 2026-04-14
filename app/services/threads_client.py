@@ -138,10 +138,10 @@ class ThreadsClient:
 
     # --- Keyword Search ---
 
-    async def keyword_search(self, query: str, limit: int = 10) -> list[dict]:
+    async def keyword_search(self, query: str, user_id: str = "me", limit: int = 10) -> list[dict]:
         """Search public Threads posts by keyword. Requires threads_keyword_search scope."""
         data = await self._get(
-            f"{THREADS_API_BASE}/threads_search",
+            f"{THREADS_API_BASE}/{user_id}/threads_search",
             q=query,
             fields="id,text,timestamp,permalink,username",
             limit=str(limit)

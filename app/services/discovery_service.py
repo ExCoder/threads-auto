@@ -45,12 +45,14 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
     """Search for fresh posts by 3 random user themes."""
     settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not settings or not settings.themes:
+        logger.warning("Keyword discovery: no settings or themes configured")
         return 0
 
     # Pick 3 random themes (not always the same ones)
     themes = list(settings.themes)
     sample_size = min(3, len(themes))
     selected_themes = random.sample(themes, sample_size)
+    logger.info("Keyword discovery: searching themes %s", selected_themes)
 
     new_count = 0
     cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
@@ -58,6 +60,7 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
     for topic_name in selected_themes:
         try:
             results = await client.keyword_search(topic_name, limit=5)
+            logger.info("Keyword search '%s': got %d results", topic_name, len(results))
             for item in results:
                 media_id = item.get("id")
                 if not media_id:
@@ -94,9 +97,9 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
 
         except ThreadsAPIError as e:
             if e.status_code == 403:
-                logger.info("Keyword search needs App Review, skipping")
+                logger.error("Keyword search 403 FORBIDDEN for '%s': %s (need threads_keyword_search scope + app review)", topic_name, e.message)
                 break
-            logger.warning("Keyword search failed for '%s': %s", topic_name, e.message)
+            logger.error("Keyword search failed for '%s': status=%d message=%s", topic_name, e.status_code, e.message)
 
     if new_count > 0:
         await db.commit()
@@ -121,8 +124,10 @@ async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, u
     )).scalars().all()
 
     if not recent_posts:
+        logger.info("Own reply discovery: no recent posts found in DB")
         return 0
 
+    logger.info("Own reply discovery: checking replies on %d posts", len(recent_posts))
     new_count = 0
     for post in recent_posts:
         try:

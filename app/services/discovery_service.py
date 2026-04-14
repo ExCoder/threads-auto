@@ -281,30 +281,33 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
     """Search by 3 random themes using global /keyword_search endpoint."""
     settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not settings or not settings.themes:
+        logger.warning("Keyword discovery: no settings or themes configured")
         return 0
 
     themes = list(settings.themes)
     selected = random.sample(themes, min(3, len(themes)))
+    logger.info("Keyword search: selected themes %s", selected)
 
     new_count = 0
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
 
     for topic in selected:
         try:
-            results = await client.keyword_search(topic, limit=5)
+            results = await client.keyword_search(topic, limit=10)
+            skipped_dup = 0
+            skipped_old = 0
+            added = 0
+
             for item in results:
                 media_id = item.get("id")
                 if not media_id:
-                    continue
-
-                # Skip replies — we want original posts to reply to
-                if item.get("is_reply"):
                     continue
 
                 existing = (await db.execute(
                     select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
                 )).scalar_one_or_none()
                 if existing:
+                    skipped_dup += 1
                     continue
 
                 # Skip old posts
@@ -312,6 +315,7 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
                 if ts:
                     try:
                         if datetime.fromisoformat(ts.replace("Z", "+00:00")) < cutoff:
+                            skipped_old += 1
                             continue
                     except (ValueError, TypeError):
                         pass
@@ -330,11 +334,18 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
                     relevance_score=0.5,
                 )
                 db.add(target)
+                added += 1
                 new_count += 1
+
+            logger.info(
+                "Keyword '%s': %d results, %d accepted, %d duplicate, %d too old",
+                topic, len(results), added, skipped_dup, skipped_old,
+            )
 
         except ThreadsAPIError as e:
             if e.status_code in (400, 403, 500):
-                break  # Permission issue, stop trying
+                logger.warning("Keyword search unavailable (%d): %s", e.status_code, e.message)
+                break
             logger.warning("Keyword search error for '%s': %s", topic, e.message)
 
     if new_count > 0:
@@ -362,7 +373,7 @@ async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient) -> in
     selected = random.sample(accounts, min(5, len(accounts)))
 
     new_count = 0
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
 
     for username in selected:
         try:

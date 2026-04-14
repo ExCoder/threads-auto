@@ -1,12 +1,13 @@
-"""Discovery service: 5 automated pipelines for finding posts to reply to.
+"""Discovery service: 6 automated pipelines for finding posts to reply to.
 
 Flow 1: Own Reply — people who replied to YOUR posts (highest value)
 Flow 2: Mentions — people who @mentioned you
 Flow 3: Conversation Chains — continue existing dialogues
 Flow 4: (handled in autopilot_service — engagement posts)
 Flow 5: Relationship Tracking — prioritize repeat interactors
+Flow 6: Profile Discovery — monitor target accounts for reply opportunities
 
-Plus keyword search when available (needs App Review).
+Plus keyword search using global /keyword_search endpoint.
 """
 from __future__ import annotations
 
@@ -51,14 +52,22 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
     except Exception as e:
         logger.warning("Flow 3 (chains) failed: %s", e)
 
-    # Keyword search (bonus — if App Review approved)
+    # Keyword search (global /keyword_search endpoint)
     try:
-        count = await _discover_by_keywords(db, client, user_id)
+        count = await _discover_by_keywords(db, client)
         total += count
         if count > 0:
             logger.info("Keyword search: found %d new targets", count)
     except Exception as e:
         logger.warning("Keyword search failed: %s", e)
+
+    # Flow 6: Profile discovery — monitor target accounts' recent posts
+    try:
+        count = await _discover_from_profiles(db, client)
+        total += count
+        logger.info("Flow 6 (profiles): found %d new targets", count)
+    except Exception as e:
+        logger.warning("Flow 6 (profiles) failed: %s", e)
 
     logger.info("Auto-discovery total: %d new targets", total)
     return total
@@ -268,8 +277,8 @@ async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient)
 # Keyword Search (bonus, needs App Review)
 # ──────────────────────────────────────────────
 
-async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, user_id: str = "me") -> int:
-    """Search by 3 random themes. Falls back silently if not approved."""
+async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
+    """Search by 3 random themes using global /keyword_search endpoint."""
     settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not settings or not settings.themes:
         return 0
@@ -282,10 +291,14 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, user_id
 
     for topic in selected:
         try:
-            results = await client.keyword_search(topic, user_id=user_id, limit=5)
+            results = await client.keyword_search(topic, limit=5)
             for item in results:
                 media_id = item.get("id")
                 if not media_id:
+                    continue
+
+                # Skip replies — we want original posts to reply to
+                if item.get("is_reply"):
                     continue
 
                 existing = (await db.execute(
@@ -323,6 +336,87 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, user_id
             if e.status_code in (400, 403, 500):
                 break  # Permission issue, stop trying
             logger.warning("Keyword search error for '%s': %s", topic, e.message)
+
+    if new_count > 0:
+        await db.commit()
+    return new_count
+
+
+# ──────────────────────────────────────────────
+# Flow 6: Profile Discovery
+# ──────────────────────────────────────────────
+
+async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient) -> int:
+    """Monitor target accounts for fresh posts to reply to.
+
+    Uses threads_profile_discovery to read public posts from accounts
+    in the user's niche. Great for growth — replying to popular accounts
+    gets visibility from their audience.
+    """
+    settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
+    if not settings or not settings.target_accounts:
+        return 0
+
+    accounts = list(settings.target_accounts)
+    # Pick up to 5 random accounts per run to avoid rate limits
+    selected = random.sample(accounts, min(5, len(accounts)))
+
+    new_count = 0
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+
+    for username in selected:
+        try:
+            posts = await client.get_profile_posts(username, limit=5)
+            for item in posts:
+                media_id = item.get("id")
+                if not media_id:
+                    continue
+
+                # Skip replies — we want original posts
+                if item.get("is_reply"):
+                    continue
+
+                # Skip old posts
+                ts = item.get("timestamp")
+                if ts:
+                    try:
+                        if datetime.fromisoformat(ts.replace("Z", "+00:00")) < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                existing = (await db.execute(
+                    select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
+                )).scalar_one_or_none()
+                if existing:
+                    continue
+
+                already_replied = (await db.execute(
+                    select(ContentItem).where(ContentItem.target_post_id == media_id)
+                )).scalar_one_or_none()
+                if already_replied:
+                    continue
+
+                post_username = item.get("username", username)
+                await _track_account(db, post_username, "profile_discovery")
+
+                target = ImportedTarget(
+                    target_url=item.get("permalink"),
+                    threads_media_id=media_id,
+                    body_text_snapshot=item.get("text", "")[:2000],
+                    source_type="profile_discovery",
+                    import_method="api",
+                    topic_tags=[f"@{post_username}"],
+                    relevance_score=0.7,  # Good value — popular accounts have engaged audiences
+                )
+                db.add(target)
+                new_count += 1
+
+        except ThreadsAPIError as e:
+            if e.status_code in (400, 403):
+                logger.info("Flow 6: profile '%s' unavailable (%d): %s", username, e.status_code, e.message)
+                continue
+            logger.warning("Flow 6: error for '%s': %s", username, e.message)
 
     if new_count > 0:
         await db.commit()
@@ -368,5 +462,5 @@ async def get_known_account_bonus(db: AsyncSession, username: str) -> float:
 
 
 # Legacy alias
-async def run_keyword_discovery(db: AsyncSession, client: ThreadsClient) -> int:
+async def run_keyword_discovery(db: AsyncSession, client: ThreadsClient, user_id: str = "me") -> int:
     return await _discover_by_keywords(db, client)

@@ -15,7 +15,7 @@ class ImportedTarget(Base):
     target_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     threads_media_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     body_text_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_type: Mapped[str] = mapped_column(String(50), default="manual")  # manual / keyword_search / mention / own_reply
+    source_type: Mapped[str] = mapped_column(String(50), default="manual")  # manual / keyword_search / mention / own_reply / conversation_chain / profile_discovery
     import_method: Mapped[str] = mapped_column(String(50), default="manual_paste")  # api / manual_paste
     topic_tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     relevance_score: Mapped[float] = mapped_column(Float, default=0.0)

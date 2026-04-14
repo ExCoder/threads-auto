@@ -20,6 +20,7 @@ class UserSettings(Base):
     daily_post_target: Mapped[int] = mapped_column(Integer, default=3)
     daily_reply_target: Mapped[int] = mapped_column(Integer, default=10)
     growth_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_accounts: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # list of usernames to monitor for reply targets
     autopilot_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

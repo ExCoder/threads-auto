@@ -138,12 +138,37 @@ class ThreadsClient:
 
     # --- Keyword Search ---
 
-    async def keyword_search(self, query: str, user_id: str = "me", limit: int = 10) -> list[dict]:
-        """Search public Threads posts by keyword. Requires threads_keyword_search scope."""
+    async def keyword_search(self, query: str, limit: int = 10, search_type: str = "TOP") -> list[dict]:
+        """Search public Threads posts by keyword. Requires threads_keyword_search scope.
+
+        Uses global /keyword_search endpoint (not user-scoped).
+        """
         data = await self._get(
-            f"{THREADS_API_BASE}/{user_id}/threads_search",
+            f"{THREADS_API_BASE}/keyword_search",
             q=query,
-            fields="id,text,timestamp,permalink,username",
+            search_type=search_type,
+            fields="id,text,timestamp,permalink,username,has_replies,is_reply",
+            limit=str(limit)
+        )
+        return data.get("data", [])
+
+    # --- Profile Discovery ---
+
+    async def profile_lookup(self, username: str) -> dict:
+        """Look up a public profile. Requires threads_profile_discovery scope."""
+        data = await self._get(
+            f"{THREADS_API_BASE}/profile_lookup",
+            username=username,
+            fields="username,name,biography,follower_count,is_verified"
+        )
+        return data
+
+    async def get_profile_posts(self, username: str, limit: int = 10) -> list[dict]:
+        """Get recent posts from a public profile. Requires threads_profile_discovery scope."""
+        data = await self._get(
+            f"{THREADS_API_BASE}/profile_posts",
+            username=username,
+            fields="id,text,timestamp,permalink,username,has_replies,is_reply",
             limit=str(limit)
         )
         return data.get("data", [])
@@ -153,7 +178,7 @@ class ThreadsClient:
     async def get_mentions(self, user_id: str = "me", limit: int = 25) -> list[dict]:
         """Get posts where user was mentioned. Requires threads_manage_mentions scope."""
         data = await self._get(
-            f"{THREADS_API_BASE}/{user_id}/threads/mentions",
+            f"{THREADS_API_BASE}/{user_id}/mentions",
             fields="id,text,timestamp,permalink,username",
             limit=str(limit)
         )

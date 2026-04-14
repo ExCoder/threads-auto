@@ -57,8 +57,20 @@ DEFAULT_SETTINGS = {
         "engagement bait questions",
         "life hacks",
     ],
-    "daily_post_target": 3,
-    "daily_reply_target": 10,
+    "target_accounts": [
+        "zaboravsky",
+        "maboroshi_ai",
+        "ai_pub",
+        "techcrunch",
+        "openai",
+        "anthropic",
+        "googleai",
+        "huggingface",
+        "langaboratory",
+        "ycombinator",
+    ],
+    "daily_post_target": 5,
+    "daily_reply_target": 15,
     "growth_goal": (
         "Reach 5000 engaged followers in 6 months by posting 3 high-signal insights per day and joining "
         "10 meaningful conversations. Build a reputation as the person developers follow for honest takes "

@@ -21,6 +21,9 @@
         <label for="forbidden_themes">Forbidden Themes (comma-separated)</label>
         <input type="text" id="forbidden_themes" name="forbidden_themes" value="{{ s.forbidden_themes|join(', ') if s and s.forbidden_themes else '' }}" placeholder="politics, religion">
 
+        <label for="target_accounts">Target Accounts for Reply Discovery (comma-separated usernames)</label>
+        <input type="text" id="target_accounts" name="target_accounts" value="{{ s.target_accounts|join(', ') if s and s.target_accounts else '' }}" placeholder="openai, anthropic, ycombinator">
+
         <div class="grid-2">
             <div>
                 <label for="daily_post_target">Daily Post Target</label>

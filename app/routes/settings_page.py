@@ -28,6 +28,8 @@ async def save_settings(request: Request, db: AsyncSession = Depends(get_db)):
     themes = [t.strip() for t in themes_raw.split(",") if t.strip()]
     forbidden_raw = form.get("forbidden_themes", "")
     forbidden = [t.strip() for t in forbidden_raw.split(",") if t.strip()]
+    target_accounts_raw = form.get("target_accounts", "")
+    target_accounts = [a.strip().lstrip("@") for a in target_accounts_raw.split(",") if a.strip()]
 
     if s is None:
         s = UserSettings(
@@ -36,6 +38,7 @@ async def save_settings(request: Request, db: AsyncSession = Depends(get_db)):
             desired_audience=form.get("desired_audience", ""),
             writing_style=form.get("writing_style", ""),
             forbidden_themes=forbidden,
+            target_accounts=target_accounts or None,
             daily_post_target=int(form.get("daily_post_target", 3)),
             daily_reply_target=int(form.get("daily_reply_target", 10)),
             growth_goal=form.get("growth_goal", ""),
@@ -47,6 +50,7 @@ async def save_settings(request: Request, db: AsyncSession = Depends(get_db)):
         s.desired_audience = form.get("desired_audience", "")
         s.writing_style = form.get("writing_style", "")
         s.forbidden_themes = forbidden
+        s.target_accounts = target_accounts or None
         s.daily_post_target = int(form.get("daily_post_target", 3))
         s.daily_reply_target = int(form.get("daily_reply_target", 10))
         s.growth_goal = form.get("growth_goal", "")

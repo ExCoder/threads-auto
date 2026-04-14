@@ -165,7 +165,7 @@ async def publish_reply_draft(draft_id: int, request: Request, db: AsyncSession 
             reply_to_id = target.threads_media_id
 
     if not reply_to_id:
-        await log_action(db, "publish_reply_failed", {"reason": "no_target_media_id"}, "error")
+        await log_action(db, "publish_reply_failed", {"reason": "no_target_media_id", "target_id": draft.imported_target_id}, "error", "Target has no threads_media_id — import with URL or use keyword search targets")
         draft.approval_status = "rejected"
         await db.commit()
         return RedirectResponse("/drafts/replies", status_code=303)

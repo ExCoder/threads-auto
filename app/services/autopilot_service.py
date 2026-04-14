@@ -1,13 +1,15 @@
 """Autonomous agent: separate post and reply loops.
 
 Posts run every 3 hours. Replies run every 1 hour.
+Reply loop is fully autonomous: discovers targets → ranks → replies.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, exists, select
+from openai import AsyncOpenAI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -16,6 +18,7 @@ from app.models import (
     Recommendation, UserSettings, OAuthToken,
 )
 from app.services.drafting_service import generate_post_drafts, generate_reply_drafts, pick_best_variant
+from app.services.discovery_service import auto_discover_targets
 from app.services.safety_service import (
     check_duplicate, check_reply_cooldown,
     check_daily_post_limit, check_daily_reply_limit, log_action,
@@ -46,7 +49,6 @@ async def run_autopilot_post(db: AsyncSession) -> AgentRun:
 
         token, user_settings = preflight
 
-        # Check post limit
         post_limit_reached, post_count = await check_daily_post_limit(db)
         run.posts_today = post_count
         if post_limit_reached:
@@ -64,7 +66,6 @@ async def run_autopilot_post(db: AsyncSession) -> AgentRun:
             logger.info("No post recommendations, generating fresh ones...")
             await generate_recommendations(db)
 
-        # Pick best post recommendation
         cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         best_rec = (await db.execute(
             select(Recommendation).where(
@@ -82,11 +83,9 @@ async def run_autopilot_post(db: AsyncSession) -> AgentRun:
         run.recommendation_id = best_rec.id
         run.decision_reason = f"post: \"{best_rec.title[:60]}\" score={best_rec.score:.2f}"
 
-        # Execute post
         client = ThreadsClient(token.access_token)
-        user_id = token.threads_user_id or "me"
         try:
-            await _do_post(db, run, best_rec, client, user_id, user_settings)
+            await _do_post(db, run, best_rec, client, token.threads_user_id or "me", user_settings)
         finally:
             await client.close()
 
@@ -102,7 +101,11 @@ async def run_autopilot_post(db: AsyncSession) -> AgentRun:
 
 
 async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
-    """Run autonomous reply cycle. Called every 1 hour."""
+    """Run autonomous reply cycle. Called every 1 hour.
+
+    Fully autonomous: discovers targets → ranks via LLM → replies.
+    No manual import needed.
+    """
     run = AgentRun(run_type="reply", decision="skip", status="running")
     db.add(run)
     await db.commit()
@@ -115,48 +118,59 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
 
         token, user_settings = preflight
 
-        # Check reply limit
         reply_limit_reached, reply_count = await check_daily_reply_limit(db)
         run.replies_today = reply_count
         if reply_limit_reached:
             return await _skip(db, run, "reply_daily_limit_reached")
 
-        # Find best target to reply to:
-        # - Has threads_media_id (can actually reply via API)
-        # - Not already replied to by us
-        # - relevance_score > 0 (not failed)
-        # - Freshest first
-        already_replied = select(ContentItem.target_post_id).where(
-            ContentItem.target_post_id.isnot(None)
-        ).scalar_subquery()
-
-        best_target = (await db.execute(
-            select(ImportedTarget).where(
-                ImportedTarget.threads_media_id.isnot(None),
-                ImportedTarget.relevance_score > 0,
-                ~ImportedTarget.threads_media_id.in_(already_replied),
-            ).order_by(
-                ImportedTarget.relevance_score.desc(),
-                ImportedTarget.created_at.desc(),
-            ).limit(1)
-        )).scalar_one_or_none()
-
-        if not best_target:
-            return await _skip(db, run, "no_reply_targets")
-
-        # Cooldown check
-        if await check_reply_cooldown(db, best_target.threads_media_id):
-            return await _skip(db, run, "reply_cooldown")
-
-        run.decision = "reply"
-        run.imported_target_id = best_target.id
-        run.decision_reason = f"reply to: \"{(best_target.body_text_snapshot or best_target.target_url or 'unknown')[:60]}\""
-
-        # Execute reply
         client = ThreadsClient(token.access_token)
         user_id = token.threads_user_id or "me"
+
         try:
+            # ── AUTO-DISCOVERY ──
+            # Find fresh posts to reply to (keyword search + own reply threads)
+            discovered = await auto_discover_targets(db, client, user_id)
+            run.decision_reason = f"discovered {discovered} new targets"
+
+            # ── FIND CANDIDATES ──
+            # Get unreplied targets with media_id, fresh, not failed
+            already_replied = select(ContentItem.target_post_id).where(
+                ContentItem.target_post_id.isnot(None)
+            ).scalar_subquery()
+
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+            candidates = (await db.execute(
+                select(ImportedTarget).where(
+                    ImportedTarget.threads_media_id.isnot(None),
+                    ImportedTarget.relevance_score > 0,
+                    ImportedTarget.body_text_snapshot.isnot(None),
+                    ImportedTarget.body_text_snapshot != "",
+                    ~ImportedTarget.threads_media_id.in_(already_replied),
+                    ImportedTarget.created_at > cutoff,
+                ).order_by(
+                    ImportedTarget.relevance_score.desc(),
+                    ImportedTarget.created_at.desc(),
+                ).limit(5)
+            )).scalars().all()
+
+            if not candidates:
+                return await _skip(db, run, f"no_reply_targets (discovered {discovered})")
+
+            # ── LLM RANKING ──
+            # Ask LLM which conversation is best to join
+            best_target = await _rank_targets(candidates, user_settings)
+
+            # Cooldown check
+            if await check_reply_cooldown(db, best_target.threads_media_id):
+                return await _skip(db, run, "reply_cooldown")
+
+            run.decision = "reply"
+            run.imported_target_id = best_target.id
+            run.decision_reason = f"reply to @{_extract_username(best_target)}: \"{(best_target.body_text_snapshot or '')[:50]}\""
+
+            # ── GENERATE + PUBLISH ──
             await _do_reply(db, run, best_target, client, user_id, user_settings)
+
         finally:
             await client.close()
 
@@ -171,9 +185,71 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
         return run
 
 
-# Keep backward compat for manual "Run Now" (runs post)
+# Backward compat
 async def run_autopilot(db: AsyncSession) -> AgentRun:
     return await run_autopilot_post(db)
+
+
+# ──────────────────────────────────────────────
+# LLM target ranking
+# ──────────────────────────────────────────────
+
+async def _rank_targets(candidates: list[ImportedTarget], user_settings: UserSettings) -> ImportedTarget:
+    """Ask LLM to pick the best conversation to join from top candidates."""
+    if len(candidates) == 1:
+        return candidates[0]
+
+    descriptions = []
+    for i, t in enumerate(candidates, 1):
+        source = t.source_type
+        username = _extract_username(t)
+        text = (t.body_text_snapshot or "")[:200]
+        descriptions.append(f"{i}. [@{username}] ({source}) \"{text}\"")
+
+    prompt = f"""You are helping a {user_settings.positioning or 'tech professional'} grow on Threads.
+Their themes: {', '.join(user_settings.themes or ['tech'])}.
+
+Pick the ONE conversation where replying would get the most visibility and engagement.
+Prefer:
+- Posts with many existing replies (active discussion)
+- Posts from accounts with large followings
+- Topics where the user can add genuine expertise
+- Fresh conversations (< 24h old)
+- Replies to OUR posts (source: own_reply) are highest priority — respond to your audience first
+
+Candidates:
+{chr(10).join(descriptions)}
+
+Reply with ONLY the number (1-{len(candidates)})."""
+
+    client = AsyncOpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    try:
+        response = await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=5,
+            temperature=0.0,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        num = int(raw[0]) if raw and raw[0].isdigit() else 1
+        idx = max(0, min(num - 1, len(candidates) - 1))
+        logger.info("LLM ranked target #%d as best: %s", idx + 1, candidates[idx].body_text_snapshot[:50] if candidates[idx].body_text_snapshot else "")
+        return candidates[idx]
+    except Exception as e:
+        logger.warning("LLM ranking failed, using first candidate: %s", e)
+        return candidates[0]
+    finally:
+        await client.close()
+
+
+def _extract_username(target: ImportedTarget) -> str:
+    """Extract username from target URL or return 'unknown'."""
+    url = target.target_url or ""
+    if "/@" in url:
+        parts = url.split("/@")
+        if len(parts) > 1:
+            return parts[1].split("/")[0]
+    return "unknown"
 
 
 # ──────────────────────────────────────────────
@@ -181,21 +257,18 @@ async def run_autopilot(db: AsyncSession) -> AgentRun:
 # ──────────────────────────────────────────────
 
 async def _preflight(db: AsyncSession, run: AgentRun) -> tuple[OAuthToken, UserSettings] | None:
-    """Common pre-flight checks. Returns (token, settings) or None if should skip."""
+    """Common pre-flight checks."""
     now = datetime.now(timezone.utc)
 
-    # Autopilot enabled?
     user_settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not user_settings or not user_settings.autopilot_enabled:
         await _skip(db, run, "autopilot_disabled")
         return None
 
-    # Settings filled?
     if not user_settings.positioning or not user_settings.themes:
         await _skip(db, run, "settings_incomplete")
         return None
 
-    # Token valid?
     token_result = await check_and_refresh_token(db)
     if token_result["status"] in ("no_token", "expired"):
         await _skip(db, run, f"token_{token_result['status']}")
@@ -206,7 +279,7 @@ async def _preflight(db: AsyncSession, run: AgentRun) -> tuple[OAuthToken, UserS
         await _skip(db, run, "no_token")
         return None
 
-    # Overlap check
+    # Overlap check (same run_type only)
     recent_running = (await db.execute(
         select(AgentRun).where(
             AgentRun.id != run.id,
@@ -269,8 +342,7 @@ async def _do_post(db, run, rec, client, user_id, user_settings):
 
 
 async def _do_reply(db, run, target, client, user_id, user_settings):
-    """Generate, pick, check, publish a reply to an ImportedTarget."""
-    # Build context for reply generation
+    """Generate, pick, check, publish a reply."""
     context = target.body_text_snapshot or target.target_url or "Reply to this conversation"
 
     draft = await generate_reply_drafts(db, context, target.id)
@@ -292,7 +364,7 @@ async def _do_reply(db, run, target, client, user_id, user_settings):
         run.status = "error"
         run.error_message = e.message[:500]
         run.finished_at = datetime.now(timezone.utc)
-        target.relevance_score = 0.0  # Don't retry failed targets
+        target.relevance_score = 0.0
         await db.commit()
         await log_action(db, "autopilot_reply_failed", {"error": e.message, "target": target.threads_media_id}, "error", e.message)
         return
@@ -327,7 +399,10 @@ async def _check_forbidden(text: str, user_settings) -> bool:
 
 async def _skip(db: AsyncSession, run: AgentRun, reason: str) -> AgentRun:
     run.status = "skipped"
-    run.decision_reason = reason
+    if not run.decision_reason:
+        run.decision_reason = reason
+    else:
+        run.decision_reason += f" → {reason}"
     run.finished_at = datetime.now(timezone.utc)
     await db.commit()
     logger.info("Autopilot %s skipped: %s", run.run_type, reason)

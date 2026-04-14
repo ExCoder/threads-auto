@@ -9,7 +9,7 @@
         <h3>Status</h3>
         {% if enabled %}
             <span class="badge badge-success">ON</span>
-            <p class="text-sm text-muted mt-16">Agent runs every 3 hours automatically</p>
+            <p class="text-sm text-muted mt-16">Posts every 3h / Replies every 1h</p>
         {% else %}
             <span class="badge badge-warning">OFF</span>
             <p class="text-sm text-muted mt-16">Agent is paused</p>
@@ -29,9 +29,14 @@
         <h3>Today's Usage</h3>
         <p class="text-sm">Posts: <strong style="color: {{ 'var(--danger)' if post_count >= max_posts else 'var(--text)' }}">{{ post_count }}</strong> / {{ max_posts }}{% if post_count >= max_posts %} <span class="badge badge-danger">LIMIT</span>{% endif %}</p>
         <p class="text-sm">Replies: <strong style="color: {{ 'var(--danger)' if reply_count >= max_replies else 'var(--text)' }}">{{ reply_count }}</strong> / {{ max_replies }}{% if reply_count >= max_replies %} <span class="badge badge-danger">LIMIT</span>{% endif %}</p>
-        <form method="post" action="/autopilot/trigger" style="margin-top: 12px;">
-            <button type="submit" class="btn btn-outline btn-sm">Run Now</button>
-        </form>
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <form method="post" action="/autopilot/trigger/post">
+                <button type="submit" class="btn btn-outline btn-sm">Run Post</button>
+            </form>
+            <form method="post" action="/autopilot/trigger/reply">
+                <button type="submit" class="btn btn-primary btn-sm">Run Reply</button>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -43,11 +48,11 @@
     <table>
         <tr>
             <th>When</th>
+            <th>Type</th>
             <th>Action</th>
             <th>Text</th>
             <th>Status</th>
             <th>Reason</th>
-            <th>Score</th>
             <th>Var</th>
             <th>Tally</th>
             <th>Time</th>
@@ -56,8 +61,15 @@
         <tr>
             <td class="text-sm text-muted">{{ r.started_at.strftime('%m/%d %H:%M') }}</td>
             <td>
+                {% if r.run_type == 'reply' %}
+                    <span class="badge badge-info">reply</span>
+                {% else %}
+                    <span class="badge badge-warning">post</span>
+                {% endif %}
+            </td>
+            <td>
                 {% if r.decision == 'post' %}
-                    <span class="badge badge-info">post</span>
+                    <span class="badge badge-success">post</span>
                 {% elif r.decision == 'reply' %}
                     <span class="badge badge-success">reply</span>
                 {% else %}
@@ -78,14 +90,7 @@
             <td>
                 <span class="badge badge-{{ 'success' if r.status == 'success' else 'danger' if r.status == 'error' else 'warning' }}">{{ r.status }}</span>
             </td>
-            <td class="text-sm text-muted">{{ r.decision_reason[:40] if r.decision_reason else '-' }}{% if r.decision_reason and r.decision_reason|length > 40 %}...{% endif %}</td>
-            <td class="text-sm">
-                {% if r.recommendation_id %}
-                    {{ "%.1f"|format(0.0) }}
-                {% else %}
-                    -
-                {% endif %}
-            </td>
+            <td class="text-sm text-muted">{{ r.decision_reason[:50] if r.decision_reason else '-' }}{% if r.decision_reason and r.decision_reason|length > 50 %}...{% endif %}</td>
             <td class="text-sm">{{ r.chosen_variant_index + 1 if r.chosen_variant_index is not none else '-' }}</td>
             <td class="text-sm text-muted">{{ r.posts_today }}/5p {{ r.replies_today }}/15r</td>
             <td class="text-sm text-muted">
@@ -100,24 +105,7 @@
     </table>
     </div>
     {% else %}
-        <p class="empty">No agent runs yet. Turn on autopilot or click "Run Now".</p>
+        <p class="empty">No agent runs yet. Turn on autopilot or click "Run Post" / "Run Reply".</p>
     {% endif %}
 </div>
-
-{% if runs %}
-<div class="card">
-    <h3>Last Error</h3>
-    {% set last_error = none %}
-    {% for r in runs if r.status == 'error' %}
-        {% if not last_error %}
-            {% set last_error = r %}
-            <p class="text-sm" style="color: var(--danger);">{{ r.error_message or 'No details' }}</p>
-            <p class="text-sm text-muted">{{ r.started_at.strftime('%Y-%m-%d %H:%M') }}</p>
-        {% endif %}
-    {% endfor %}
-    {% if not last_error %}
-        <p class="text-sm text-muted">No errors</p>
-    {% endif %}
-</div>
-{% endif %}
 {% endblock %}

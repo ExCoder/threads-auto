@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import AgentRun, UserSettings
-from app.services.autopilot_service import run_autopilot
+from app.services.autopilot_service import run_autopilot_post, run_autopilot_reply
 from app.services.safety_service import check_daily_post_limit, check_daily_reply_limit
 
 logger = logging.getLogger(__name__)
@@ -57,11 +57,27 @@ async def toggle_autopilot(request: Request, db: AsyncSession = Depends(get_db))
     return RedirectResponse("/autopilot", status_code=303)
 
 
-@router.post("/trigger")
-async def manual_trigger(request: Request, db: AsyncSession = Depends(get_db)):
+@router.post("/trigger/post")
+async def trigger_post(request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        result = await run_autopilot(db)
-        logger.info("Manual autopilot run: decision=%s status=%s", result.decision, result.status)
+        result = await run_autopilot_post(db)
+        logger.info("Manual post run: decision=%s status=%s", result.decision, result.status)
     except Exception as e:
-        logger.error("Manual autopilot run failed: %s", e)
+        logger.error("Manual post run failed: %s", e)
     return RedirectResponse("/autopilot", status_code=303)
+
+
+@router.post("/trigger/reply")
+async def trigger_reply(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        result = await run_autopilot_reply(db)
+        logger.info("Manual reply run: decision=%s status=%s", result.decision, result.status)
+    except Exception as e:
+        logger.error("Manual reply run failed: %s", e)
+    return RedirectResponse("/autopilot", status_code=303)
+
+
+# Keep old trigger for backward compat
+@router.post("/trigger")
+async def trigger_any(request: Request, db: AsyncSession = Depends(get_db)):
+    return await trigger_post(request, db)

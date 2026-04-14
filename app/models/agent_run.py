@@ -15,7 +15,8 @@ class AgentRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Decision
+    # Run type and decision
+    run_type: Mapped[str] = mapped_column(String(50), default="post")  # post / reply
     decision: Mapped[str] = mapped_column(String(50), nullable=False)  # post / reply / skip
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 

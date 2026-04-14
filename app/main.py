@@ -77,32 +77,49 @@ async def seed_defaults():
         logger.error("Seed failed (non-fatal): %s", e)
 
 
-# --- Autopilot scheduler ---
+# --- Autopilot scheduler (posts every 3h, replies every 1h) ---
 
 @app.on_event("startup")
 async def start_autopilot_scheduler():
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
 
-    async def _autopilot_job():
+    async def _post_job():
         from app.db import async_session
-        from app.services.autopilot_service import run_autopilot
+        from app.services.autopilot_service import run_autopilot_post
         try:
             async with async_session() as db:
-                result = await run_autopilot(db)
-                logger.info("Autopilot cron: decision=%s status=%s", result.decision, result.status)
+                result = await run_autopilot_post(db)
+                logger.info("Autopilot post: decision=%s status=%s", result.decision, result.status)
         except Exception as e:
-            logger.error("Autopilot cron error: %s", e)
+            logger.error("Autopilot post error: %s", e)
+
+    async def _reply_job():
+        from app.db import async_session
+        from app.services.autopilot_service import run_autopilot_reply
+        try:
+            async with async_session() as db:
+                result = await run_autopilot_reply(db)
+                logger.info("Autopilot reply: decision=%s status=%s", result.decision, result.status)
+        except Exception as e:
+            logger.error("Autopilot reply error: %s", e)
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
-        _autopilot_job,
-        IntervalTrigger(hours=settings.autopilot_interval_hours),
-        id="autopilot",
+        _post_job,
+        IntervalTrigger(hours=settings.autopilot_post_interval_hours),
+        id="autopilot_post",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _reply_job,
+        IntervalTrigger(hours=settings.autopilot_reply_interval_hours),
+        id="autopilot_reply",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info("Autopilot scheduler started (every %dh)", settings.autopilot_interval_hours)
+    logger.info("Autopilot scheduler: posts every %dh, replies every %dh",
+                settings.autopilot_post_interval_hours, settings.autopilot_reply_interval_hours)
 
 
 @app.get("/health")

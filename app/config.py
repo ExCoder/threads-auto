@@ -55,7 +55,8 @@ class Settings:
     reply_cooldown_minutes: int = 30
 
     # Autopilot
-    autopilot_interval_hours: int = 3
+    autopilot_post_interval_hours: int = 3
+    autopilot_reply_interval_hours: int = 1
     autopilot_min_score: float = 0.6
 
 

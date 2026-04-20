@@ -28,9 +28,18 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
     """Run ALL discovery pipelines. Returns total new targets found."""
     total = 0
 
+    # Resolve own username once so flows can skip self-replies
+    own_username = ""
+    try:
+        profile = await client.get_user_profile(user_id)
+        own_username = (profile.get("username") or "").lower()
+        logger.info("Discovery: own username is @%s (will skip self-replies)", own_username)
+    except Exception as e:
+        logger.warning("Could not resolve own username, self-reply guard disabled: %s", e)
+
     # Flow 1: Own reply threads (people responding to us — highest value)
     try:
-        count = await _discover_own_reply_threads(db, client, user_id)
+        count = await _discover_own_reply_threads(db, client, user_id, own_username)
         total += count
         logger.info("Flow 1 (own_reply): found %d new targets", count)
     except Exception as e:
@@ -46,7 +55,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
 
     # Flow 3: Conversation chains (continue existing dialogues)
     try:
-        count = await _discover_conversation_chains(db, client)
+        count = await _discover_conversation_chains(db, client, own_username)
         total += count
         logger.info("Flow 3 (chains): found %d new targets", count)
     except Exception as e:
@@ -54,7 +63,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
 
     # Keyword search (global /keyword_search endpoint)
     try:
-        count = await _discover_by_keywords(db, client)
+        count = await _discover_by_keywords(db, client, own_username)
         total += count
         if count > 0:
             logger.info("Keyword search: found %d new targets", count)
@@ -63,7 +72,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
 
     # Flow 6: Profile discovery — monitor target accounts' recent posts
     try:
-        count = await _discover_from_profiles(db, client)
+        count = await _discover_from_profiles(db, client, own_username)
         total += count
         logger.info("Flow 6 (profiles): found %d new targets", count)
     except Exception as e:
@@ -77,7 +86,7 @@ async def auto_discover_targets(db: AsyncSession, client: ThreadsClient, user_id
 # Flow 1: Own Reply Threads
 # ──────────────────────────────────────────────
 
-async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, user_id: str) -> int:
+async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, user_id: str, own_username: str = "") -> int:
     """Find people who replied to our posts — they're already engaged."""
     recent_posts = (await db.execute(
         select(ContentItem).where(
@@ -105,6 +114,11 @@ async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, u
                 text = reply.get("text", "")
 
                 if not media_id or not text:
+                    continue
+
+                # Skip our own replies — don't reply to ourselves
+                if own_username and username.lower() == own_username:
+                    logger.info("Flow 1: skip self-reply from @%s", username)
                     continue
 
                 logger.info("Flow 1: reply from @%s: %s", username, text[:80])
@@ -206,7 +220,7 @@ async def _discover_mentions(db: AsyncSession, client: ThreadsClient, user_id: s
 # Flow 3: Conversation Chains
 # ──────────────────────────────────────────────
 
-async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient) -> int:
+async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient, own_username: str = "") -> int:
     """Find replies to OUR replies — continue existing dialogues.
 
     Long threads = more algorithmic visibility on Threads.
@@ -237,6 +251,10 @@ async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient)
                 text = reply.get("text", "")
 
                 if not media_id or not text:
+                    continue
+
+                # Skip our own replies in the chain
+                if own_username and username.lower() == own_username:
                     continue
 
                 existing = (await db.execute(
@@ -277,7 +295,7 @@ async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient)
 # Keyword Search (bonus, needs App Review)
 # ──────────────────────────────────────────────
 
-async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
+async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, own_username: str = "") -> int:
     """Search by 3 random themes using global /keyword_search endpoint."""
     settings = (await db.execute(select(UserSettings).limit(1))).scalar_one_or_none()
     if not settings or not settings.themes:
@@ -296,11 +314,18 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
             results = await client.keyword_search(topic, limit=10)
             skipped_dup = 0
             skipped_old = 0
+            skipped_self = 0
             added = 0
 
             for item in results:
                 media_id = item.get("id")
                 if not media_id:
+                    continue
+
+                # Skip our own posts — don't reply to ourselves
+                post_username = (item.get("username") or "").lower()
+                if own_username and post_username == own_username:
+                    skipped_self += 1
                     continue
 
                 existing = (await db.execute(
@@ -338,8 +363,8 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
                 new_count += 1
 
             logger.info(
-                "Keyword '%s': %d results, %d accepted, %d duplicate, %d too old",
-                topic, len(results), added, skipped_dup, skipped_old,
+                "Keyword '%s': %d results, %d accepted, %d duplicate, %d too old, %d self",
+                topic, len(results), added, skipped_dup, skipped_old, skipped_self,
             )
 
         except ThreadsAPIError as e:
@@ -357,7 +382,7 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient) -> int:
 # Flow 6: Profile Discovery
 # ──────────────────────────────────────────────
 
-async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient) -> int:
+async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient, own_username: str = "") -> int:
     """Monitor target accounts for fresh posts to reply to.
 
     Uses threads_profile_discovery to read public posts from accounts
@@ -376,6 +401,9 @@ async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient) -> in
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
 
     for username in selected:
+        # Skip our own handle if it somehow ended up in target_accounts
+        if own_username and username.lower() == own_username:
+            continue
         try:
             posts = await client.get_profile_posts(username, limit=5)
             for item in posts:
@@ -385,6 +413,11 @@ async def _discover_from_profiles(db: AsyncSession, client: ThreadsClient) -> in
 
                 # Skip replies — we want original posts
                 if item.get("is_reply"):
+                    continue
+
+                # Skip our own posts
+                post_username = (item.get("username") or "").lower()
+                if own_username and post_username == own_username:
                     continue
 
                 # Skip old posts

@@ -160,9 +160,26 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
             if not candidates:
                 return await _skip(db, run, f"no_reply_targets (discovered {discovered})")
 
+            logger.info("Reply candidates (%d):", len(candidates))
+            for c in candidates:
+                logger.info(
+                    "  - @%s [%s] score=%.2f id=%s text=%r",
+                    _extract_username(c),
+                    c.source_type,
+                    c.relevance_score or 0.0,
+                    c.threads_media_id,
+                    (c.body_text_snapshot or "")[:80],
+                )
+
             # ── LLM RANKING ──
             # Ask LLM which conversation is best to join
             best_target = await _rank_targets(candidates, user_settings)
+            logger.info(
+                "Reply PICK: @%s [%s] id=%s",
+                _extract_username(best_target),
+                best_target.source_type,
+                best_target.threads_media_id,
+            )
 
             # Cooldown check
             if await check_reply_cooldown(db, best_target.threads_media_id):
@@ -408,8 +425,13 @@ async def _do_reply(db, run, target, client, user_id, user_settings):
     if await check_duplicate(db, text):
         return await _skip(db, run, "duplicate")
 
+    logger.info(
+        "Publishing reply to @%s (target_id=%s): %r",
+        _extract_username(target), target.threads_media_id, text[:120],
+    )
     try:
         media_id = await client.publish_reply(user_id, text, target.threads_media_id)
+        logger.info("Reply published: media_id=%s → https://www.threads.net/post/%s", media_id, media_id)
     except ThreadsAPIError as e:
         run.status = "error"
         run.error_message = e.message[:500]

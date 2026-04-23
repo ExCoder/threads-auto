@@ -349,6 +349,12 @@ async def _discover_by_keywords(db: AsyncSession, client: ThreadsClient, own_use
                 if username:
                     await _track_account(db, username, "search")
 
+                text_preview = (item.get("text") or "")[:80]
+                logger.info(
+                    "Keyword '%s': ADD target @%s id=%s text=%r",
+                    topic, username or "?", media_id, text_preview,
+                )
+
                 target = ImportedTarget(
                     target_url=item.get("permalink"),
                     threads_media_id=media_id,

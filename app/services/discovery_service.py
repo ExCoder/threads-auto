@@ -123,18 +123,23 @@ async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, u
 
                 logger.info("Flow 1: reply from @%s: %s", username, text[:80])
 
-                # Skip if already imported
-                existing = (await db.execute(
-                    select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
-                )).scalar_one_or_none()
-                if existing:
-                    continue
-
-                # Skip if we already replied
+                # Skip if we already replied to this reply
                 already_replied = (await db.execute(
                     select(ContentItem).where(ContentItem.target_post_id == media_id)
                 )).scalar_one_or_none()
                 if already_replied:
+                    logger.info("Flow 1: already replied to @%s (id=%s), skip", username, media_id)
+                    continue
+
+                # If already imported — "touch" it so it stays fresh in the candidate window
+                existing = (await db.execute(
+                    select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
+                )).scalar_one_or_none()
+                if existing:
+                    existing.created_at = datetime.now(timezone.utc)
+                    if not existing.body_text_snapshot and text:
+                        existing.body_text_snapshot = text[:2000]
+                    logger.info("Flow 1: touched existing target @%s (id=%s)", username, media_id)
                     continue
 
                 # Track this account (Flow 5)
@@ -155,8 +160,8 @@ async def _discover_own_reply_threads(db: AsyncSession, client: ThreadsClient, u
         except ThreadsAPIError as e:
             logger.warning("Flow 1: failed for post %s: %s", post.threads_media_id, e.message)
 
-    if new_count > 0:
-        await db.commit()
+    # Commit always — also saves touch-updates on existing targets
+    await db.commit()
     return new_count
 
 
@@ -257,16 +262,20 @@ async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient,
                 if own_username and username.lower() == own_username:
                     continue
 
-                existing = (await db.execute(
-                    select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
-                )).scalar_one_or_none()
-                if existing:
-                    continue
-
                 already_replied = (await db.execute(
                     select(ContentItem).where(ContentItem.target_post_id == media_id)
                 )).scalar_one_or_none()
                 if already_replied:
+                    continue
+
+                # If already imported — touch it so it stays fresh
+                existing = (await db.execute(
+                    select(ImportedTarget).where(ImportedTarget.threads_media_id == media_id)
+                )).scalar_one_or_none()
+                if existing:
+                    existing.created_at = datetime.now(timezone.utc)
+                    if not existing.body_text_snapshot and text:
+                        existing.body_text_snapshot = text[:2000]
                     continue
 
                 await _track_account(db, username, "conversation")
@@ -286,8 +295,8 @@ async def _discover_conversation_chains(db: AsyncSession, client: ThreadsClient,
         except ThreadsAPIError as e:
             logger.warning("Flow 3: failed for reply %s: %s", our_reply.threads_media_id, e.message)
 
-    if new_count > 0:
-        await db.commit()
+    # Commit always — also saves touch-updates on existing targets
+    await db.commit()
     return new_count
 
 

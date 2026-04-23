@@ -142,7 +142,13 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
                 ContentItem.target_post_id.isnot(None)
             ).scalar_subquery()
 
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=72)  # 72h window
+            # Diagnostic: total ImportedTargets in DB and how many we've already replied to
+            total_targets = (await db.execute(
+                select(func.count()).select_from(ImportedTarget)
+            )).scalar() or 0
+            logger.info("Reply candidates: scanning %d total ImportedTargets", total_targets)
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)  # 30-day window
             candidates = (await db.execute(
                 select(ImportedTarget).where(
                     ImportedTarget.threads_media_id.isnot(None),
@@ -158,7 +164,18 @@ async def run_autopilot_reply(db: AsyncSession) -> AgentRun:
             )).scalars().all()
 
             if not candidates:
-                return await _skip(db, run, f"no_reply_targets (discovered {discovered})")
+                # Diagnostic: why zero? show breakdown
+                unreplied = (await db.execute(
+                    select(func.count()).select_from(ImportedTarget).where(
+                        ImportedTarget.threads_media_id.isnot(None),
+                        ~ImportedTarget.threads_media_id.in_(already_replied),
+                    )
+                )).scalar() or 0
+                logger.warning(
+                    "No reply candidates: %d targets total, %d unreplied, 0 within 30-day cutoff+score+text filters",
+                    total_targets, unreplied,
+                )
+                return await _skip(db, run, f"no_reply_targets (discovered {discovered}, total_db={total_targets}, unreplied={unreplied})")
 
             logger.info("Reply candidates (%d):", len(candidates))
             for c in candidates:
